@@ -323,7 +323,7 @@ KAFKA_CLIENT_USER=user
 KAFKA_CLIENT_PASSWORD=password
 ```
 
-You **must** also use your own certificates for SSL. You can drop your Java Key Stores files into `/opt/bitnami/kafka/config/certs`. If the JKS is password protected (recommended), you will need to provide it to get access to the keystores:
+You **must** also use your own certificates for SSL. You can drop your Java Key Stores or PEM files into `/opt/bitnami/kafka/config/certs`. If the JKS or PEM is password protected (recommended), you will need to provide it to get access to the keystores:
 
 `KAFKA_CERTIFICATE_PASSWORD=myCertificatePassword`
 
@@ -369,6 +369,11 @@ services:
     volumes:
       - './kafka.keystore.jks:/opt/bitnami/kafka/config/certs/kafka.keystore.jks:ro'
       - './kafka.truststore.jks:/opt/bitnami/kafka/config/certs/kafka.truststore.jks:ro'
+    # If you want to use PEM certificates instead
+    # - './kafka.pem:/opt/bitnami/kafka/config/certs/kafka.pem:ro'
+    # - './kafka.key:/opt/bitnami/kafka/config/certs/kafka.key:ro'
+    # - './ca-cert:/opt/bitnami/kafka/config/certs/ca-cert:ro'
+
 ```
 
 In order to get the required credentials to consume and produce messages you need to provide the credentials in the client. If your Kafka client allows it, use the credentials you've provided.

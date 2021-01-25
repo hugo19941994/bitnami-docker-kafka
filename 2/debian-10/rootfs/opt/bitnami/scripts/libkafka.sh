@@ -43,7 +43,10 @@ kafka_common_conf_set() {
         # Check if the value was set before
         if grep -q "^[#\\s]*$key\s*=.*" "$file"; then
             # Update the existing key
-            replace_in_file "$file" "^[#\\s]*${key}\s*=.*" "${key}=${value}" false
+            case "${value}" in # check if value contains a newline
+                (*$'\n'*) VALUE="${value}" perl -0777 -i -pe 's/^[#\\s]*'"${key}"'\s*=.*?(?<! \\)$/'"${key}"'=$ENV{VALUE}/gsm' "$file";; # value is multiline (e.g. PEM keys)
+                (*) replace_in_file "$file" "^[#\\s]*${key}\s*=.*" "${key}=${value}" false;;
+            esac
         else
             # Add a new key
             printf '\n%s=%s' "$key" "$value" >>"$file"
@@ -265,8 +268,10 @@ kafka_validate() {
     fi
     if [[ "${KAFKA_CFG_LISTENERS:-}" =~ SSL ]] || [[ "${KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP:-}" =~ SSL ]]; then
         if ([[ ! -f "$KAFKA_CONF_DIR"/certs/kafka.keystore.jks ]] || [[ ! -f "$KAFKA_CONF_DIR"/certs/kafka.truststore.jks ]]) \
-            && ([[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.keystore.jks ]] || [[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.truststore.jks ]]); then
-            print_validation_error "In order to configure the TLS encryption for Kafka you must mount your kafka.keystore.jks and kafka.truststore.jks certificates to the ${KAFKA_MOUNTED_CONF_DIR}/certs directory."
+            && ([[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.keystore.jks ]] || [[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.truststore.jks ]]) \
+            && ([[ ! -f "$KAFKA_CONF_DIR"/certs/kafka.key ]] || [[ ! -f "$KAFKA_CONF_DIR"/certs/kafka.pem ]] || [[ ! -f "$KAFKA_CONF_DIR"/certs/ca-cert ]]) \
+            && ([[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.key ]] || [[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/kafka.pem ]] || [[ ! -f "$KAFKA_MOUNTED_CONF_DIR"/certs/ca-cert ]]); then
+            print_validation_error "In order to configure the TLS encryption for Kafka you must mount your kafka.keystore.jks (or kafka.key & kefka.pem) and kafka.truststore.jks (or ca-cert) certificates to the ${KAFKA_MOUNTED_CONF_DIR}/certs directory."
         fi
     elif [[ "${KAFKA_CFG_LISTENERS:-}" =~ SASL ]] || [[ "${KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP:-}" =~ SASL ]]; then
         if [[ -z "$KAFKA_CLIENT_PASSWORD" && -z "$KAFKA_CLIENT_PASSWORDS" ]] && [[ -z "$KAFKA_INTER_BROKER_PASSWORD" ]]; then
@@ -455,17 +460,41 @@ kafka_create_sasl_scram_zookeeper_users() {
 #   None
 #########################
 kafka_configure_ssl() {
-    # Set Kafka configuration
-    kafka_server_conf_set ssl.keystore.location "$KAFKA_CONF_DIR"/certs/kafka.keystore.jks
-    kafka_server_conf_set ssl.keystore.password "$KAFKA_CERTIFICATE_PASSWORD"
+    # Check if the keystore is in PEM or JKS format
+    if [[ -f "$KAFKA_CONF_DIR"/certs/kafka.key && -f "$KAFKA_CONF_DIR"/certs/kafka.pem ]]; then
+        # Set Kafka configuration
+        kafka_server_conf_set ssl.keystore.type "PEM"
+        kafka_server_conf_set ssl.keystore.key "$(cat "$KAFKA_CONF_DIR"/certs/kafka.key | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+        kafka_server_conf_set ssl.keystore.certificate.chain "$(cat "$KAFKA_CONF_DIR"/certs/kafka.pem | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+        # Set producer/consumer configuration
+        kafka_producer_consumer_conf_set ssl.keystore.type "PEM"
+        kafka_producer_consumer_conf_set ssl.keystore.key "$(cat "$KAFKA_CONF_DIR"/certs/kafka.key | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+        kafka_producer_consumer_conf_set ssl.keystore.certificate.chain "$(cat "$KAFKA_CONF_DIR"/certs/kafka.pem | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+    else
+        # Set Kafka configuration
+        kafka_server_conf_set ssl.keystore.location "$KAFKA_CONF_DIR"/certs/kafka.keystore.jks
+        kafka_server_conf_set ssl.keystore.password "$KAFKA_CERTIFICATE_PASSWORD"
+        # Set producer/consumer configuration
+        kafka_producer_consumer_conf_set ssl.keystore.location "$KAFKA_CONF_DIR"/certs/kafka.keystore.jks
+        kafka_producer_consumer_conf_set ssl.keystore.password "$KAFKA_CERTIFICATE_PASSWORD"
+    fi
+    # Check if the truststore is in PEM or JKS format
+    if [[ -f "$KAFKA_CONF_DIR"/certs/ca-cert ]]; then
+        # Set Kafka configuration
+        kafka_server_conf_set ssl.truststore.type "PEM"
+        kafka_server_conf_set ssl.truststore.certificates "$(cat "$KAFKA_CONF_DIR"/certs/ca-cert | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+        # Set producer/consumer configuration
+        kafka_producer_consumer_conf_set ssl.truststore.type "PEM"
+        kafka_producer_consumer_conf_set ssl.truststore.certificates "$(cat "$KAFKA_CONF_DIR"/certs/ca-cert | awk 'NR > 1{print line" \\"}{line=$0;}END{print $0" "}')"
+    else
+        # Set Kafka configuration
+        kafka_server_conf_set ssl.truststore.location "$KAFKA_CONF_DIR"/certs/kafka.truststore.jks
+        kafka_server_conf_set ssl.truststore.password "$KAFKA_CERTIFICATE_PASSWORD"
+        # Set producer/consumer configuration
+        kafka_producer_consumer_conf_set ssl.truststore.location "$KAFKA_CONF_DIR"/certs/kafka.truststore.jks
+        kafka_producer_consumer_conf_set ssl.truststore.password "$KAFKA_CERTIFICATE_PASSWORD"
+    fi
     kafka_server_conf_set ssl.key.password "$KAFKA_CERTIFICATE_PASSWORD"
-    kafka_server_conf_set ssl.truststore.location "$KAFKA_CONF_DIR"/certs/kafka.truststore.jks
-    kafka_server_conf_set ssl.truststore.password "$KAFKA_CERTIFICATE_PASSWORD"
-    # Set producer/consumer configuration
-    kafka_producer_consumer_conf_set ssl.keystore.location "$KAFKA_CONF_DIR"/certs/kafka.keystore.jks
-    kafka_producer_consumer_conf_set ssl.keystore.password "$KAFKA_CERTIFICATE_PASSWORD"
-    kafka_producer_consumer_conf_set ssl.truststore.location "$KAFKA_CONF_DIR"/certs/kafka.truststore.jks
-    kafka_producer_consumer_conf_set ssl.truststore.password "$KAFKA_CERTIFICATE_PASSWORD"
     kafka_producer_consumer_conf_set ssl.key.password "$KAFKA_CERTIFICATE_PASSWORD"
 }
 
