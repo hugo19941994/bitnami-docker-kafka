@@ -240,6 +240,11 @@ kafka_validate() {
             print_validation_error "An invalid port was specified in the environment variable KAFKA_CFG_LISTENERS: $err"
         fi
     }
+    check_multi_value() {
+        if [[ " ${2} " != *" ${!1} "* ]]; then
+            print_validation_error "The allowed values for ${1} are: ${2}"
+        fi
+    }
 
     if [[ ${KAFKA_CFG_LISTENERS:-} =~ INTERNAL://:([0-9]*) ]]; then
         internal_port="${BASH_REMATCH[1]}"
