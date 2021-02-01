@@ -441,7 +441,8 @@ In order to authenticate Kafka against a Zookeeper server with `SASL_SSL`, you s
 * `KAFKA_ZOOKEEPER_TLS_TRUSTSTORE_PASSWORD`: Kafka Zookeeper truststore file password. No defaults.
 * `KAFKA_ZOOKEEPER_TLS_VERIFY_HOSTNAME`: Verify Zookeeper hostname on TLS certificates. Defaults: **true**.
 
-> Note: You **must** also use your own certificates for SSL. You can mount your Java Key Stores files (`zookeeper.keystore.jks` and `zookeeper.truststore.jks`) into `/opt/bitnami/kafka/conf/certs`.
+> Note: You **must** also use your own certificates for SSL. You can mount your files (`zookeeper.keystore.jks` and `zookeeper.truststore.jks` or `zookeeper.keystore.pem` and `zookeeper.truststore.pem`) into `/bitnami/kafka/conf/certs`.
+If client authentication is `none` or `want` in Zookeeper the keystore file is optional.
 
 ### Setting up a Kafka Cluster
 
